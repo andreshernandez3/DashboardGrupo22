@@ -1,151 +1,86 @@
 import streamlit as st
 import pandas as pd
-import math
-from pathlib import Path
+import seaborn as sns
+import matplotlib.pyplot as plt
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+# Configuración de página
+st.set_page_config(page_title="Dashboard de Ventas", layout="wide")
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
-
+# Cargar datos
 @st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+def load_data():
+    df = pd.read_csv(Path(__file__).parent/'data/data.csv')
+    df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
+    return df
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+df = load_data()
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+# Sidebar
+st.sidebar.header("Filtros")
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+date_min = df["Date"].min().date()
+date_max = df["Date"].max().date()
+date_range = st.sidebar.slider("Rango de Fechas", min_value=date_min, max_value=date_max, value=(date_min, date_max))
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+city = st.sidebar.multiselect("Ciudad", options=df["City"].unique(), default=df["City"].unique())
+branch = st.sidebar.multiselect("Sucursal", options=df["Branch"].unique(), default=df["Branch"].unique())
+customer_type = st.sidebar.multiselect("Tipo de Cliente", options=df["Customer type"].unique(), default=df["Customer type"].unique())
+gender = st.sidebar.multiselect("Género", options=df["Gender"].unique(), default=df["Gender"].unique())
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
-
-    return gdp_df
-
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
+# Filtro
+df_filtered = df[
+    (df["City"].isin(city)) &
+    (df["Branch"].isin(branch)) &
+    (df["Customer type"].isin(customer_type)) &
+    (df["Gender"].isin(gender)) &
+    (df["Date"] >= pd.to_datetime(date_range[0])) &
+    (df["Date"] <= pd.to_datetime(date_range[1]))
 ]
 
-st.header('GDP over time', divider='gray')
+st.title("📊 Dashboard de Ventas - Visión Ejecutiva")
 
-''
+# Métricas clave
+st.subheader("Métricas Generales")
+col1, col2, col3, col4 = st.columns(4)
+col1.metric("Total Ventas", f"${df_filtered['Total'].sum():,.2f}")
+col2.metric("Clientes Únicos", df_filtered["Invoice ID"].nunique())
+col3.metric("Ingreso Bruto", f"${df_filtered['gross income'].sum():,.2f}")
+col4.metric("Rating Promedio", f"{df_filtered['Rating'].mean():.2f} ⭐")
 
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
+# 1. Evolución de las Ventas Totales
+st.subheader("1. Evolución de las Ventas Totales")
+ventas_diarias = df_filtered.groupby("Date")["Total"].sum().reset_index()
+fig, ax = plt.subplots(figsize=(10, 4))
+sns.lineplot(data=ventas_diarias, x="Date", y="Total", ax=ax)
+ax.set_ylabel("Total ($)")
+ax.set_xlabel("Fecha")
+ax.set_title("Ventas Totales por Fecha")
+st.pyplot(fig)
 
-''
-''
+# 2. Ingresos por Línea de Producto
+st.subheader("2. Ingresos por Línea de Producto")
+ventas_productos = df_filtered.groupby("Product line")["Total"].sum().sort_values()
+fig, ax = plt.subplots(figsize=(10, 4))
+ventas_productos.plot(kind="barh", ax=ax, color="skyblue")
+ax.set_xlabel("Total ($)")
+ax.set_title("Total de Ventas por Línea de Producto")
+st.pyplot(fig)
 
+# 3. Comparación del Gasto por Tipo de Cliente
+st.subheader("3. Comparación del Gasto por Tipo de Cliente")
+fig, ax = plt.subplots(figsize=(8, 4))
+sns.boxplot(data=df_filtered, x="Customer type", y="Total", ax=ax)
+ax.set_title("Gasto Total por Tipo de Cliente")
+st.pyplot(fig)
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+# 4. Métodos de Pago Preferidos
+st.subheader("4. Métodos de Pago Preferidos")
+pagos = df_filtered["Payment"].value_counts()
+fig, ax = plt.subplots()
+ax.pie(pagos, labels=pagos.index, autopct='%1.1f%%', startangle=90)
+ax.set_title("Distribución de Métodos de Pago")
+st.pyplot(fig)
 
-st.header(f'GDP in {to_year}', divider='gray')
-
-''
-
-cols = st.columns(4)
-
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
-
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
-
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+# Footer
+st.markdown("---")
+st.caption("Streamlit Dashboard - Grupo 22 - Andrés Hernández Morales, Javier Vera Maldonado")
