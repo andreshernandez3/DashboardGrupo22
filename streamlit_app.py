@@ -9,7 +9,7 @@ st.set_page_config(page_title="Dashboard de Ventas", layout="wide")
 # Cargar datos
 @st.cache_data
 def load_data():
-    df = pd.read_csv(Path(__file__).parent/'data/data.csv')
+    df = pd.read_csv('data/data.csv')
     df["Date"] = pd.to_datetime(df["Date"], format="%m/%d/%Y")
     return df
 
